@@ -1,0 +1,866 @@
+{
+  "system": {
+    "name": "github.com/asaidimu/go-events",
+    "language": "Go",
+    "description": "A robust and flexible in-memory event bus for Go applications, supporting synchronous and asynchronous event processing with configurable error handling, event filtering, and metrics.",
+    "keyFeatures": [
+      "Flexible event handling with subscriptions and filters",
+      "Configurable synchronous or asynchronous event processing",
+      "Robust error handling with retries and panic recovery",
+      "Timeouts for long-running event handlers",
+      "Comprehensive operational metrics",
+      "Optional cross-process communication via pluggable backends",
+      "Compile-time type safety with generics (TypedEventBus)",
+      "Graceful shutdown of pending asynchronous events"
+    ]
+  },
+  "dependencies": {
+    "external": [
+      {
+        "name": "context",
+        "purpose": "Provides Context type for cancellation, deadlines, and value propagation to event handlers.",
+        "interfaces": [
+          {
+            "name": "context.Context",
+            "description": "Standard Go context interface for managing request-scoped data, cancellation signals, and deadlines.",
+            "methods": [
+              {
+                "name": "Deadline",
+                "signature": "Deadline() (deadline time.Time, ok bool)",
+                "parameters": "None",
+                "returnValue": "deadline (time.Time): The time when the context's work should be canceled. ok (bool): True if a deadline is set, false otherwise."
+              },
+              {
+                "name": "Done",
+                "signature": "Done() <-chan struct{}",
+                "parameters": "None",
+                "returnValue": "<-chan struct{}: A channel that is closed when the context's work is canceled or times out. Consumers can select on this channel."
+              },
+              {
+                "name": "Err",
+                "signature": "Err() error",
+                "parameters": "None",
+                "returnValue": "error: The reason the context was canceled. Returns `nil` if not yet canceled, `context.Canceled` if canceled, `context.DeadlineExceeded` if timed out."
+              },
+              {
+                "name": "Value",
+                "signature": "Value(key any) any",
+                "parameters": "key (any): The key for which to retrieve a value.",
+                "returnValue": "any: The value associated with `key`, or `nil` if no value is associated or the key is invalid."
+              }
+            ]
+          }
+        ],
+        "installation": "Go Standard Library - no installation needed.",
+        "version": "Compatible with Go 1.22+"
+      },
+      {
+        "name": "sync",
+        "purpose": "Provides fundamental synchronization primitives like mutexes and wait groups for safe concurrent access and goroutine management.",
+        "interfaces": [],
+        "installation": "Go Standard Library - no installation needed.",
+        "version": "Compatible with Go 1.22+"
+      },
+      {
+        "name": "sync/atomic",
+        "purpose": "Provides low-level atomic memory primitives for safe, lock-free updates to shared variables (e.g., counters, flags).",
+        "interfaces": [],
+        "installation": "Go Standard Library - no installation needed.",
+        "version": "Compatible with Go 1.22+"
+      },
+      {
+        "name": "time",
+        "purpose": "Provides functionality for measuring and displaying time, including durations, timestamps, and timers, essential for batching, delays, and timeouts.",
+        "interfaces": [],
+        "installation": "Go Standard Library - no installation needed.",
+        "version": "Compatible with Go 1.22+"
+      },
+      {
+        "name": "container/list",
+        "purpose": "Implements a doubly linked list, used as the internal unbounded queue for buffering events in asynchronous mode.",
+        "interfaces": [],
+        "installation": "Go Standard Library - no installation needed.",
+        "version": "Compatible with Go 1.22+"
+      },
+      {
+        "name": "runtime",
+        "purpose": "Provides interaction with the Go runtime, primarily used for panic recovery and stack trace capture in error handling.",
+        "interfaces": [],
+        "installation": "Go Standard Library - no installation needed.",
+        "version": "Compatible with Go 1.22+"
+      }
+    ],
+    "peer": [
+      {
+        "name": "Go Runtime Environment",
+        "reason": "Required for compiling and executing the `go-events` library and any application using it.",
+        "version": ">=1.22"
+      }
+    ]
+  },
+  "integration": {
+    "environmentRequirements": "The `go-events` library requires a Go runtime environment version 1.22 or higher. No specific compiler flags or platform-specific constraints beyond standard Go build environments. Utilize `go.mod` to specify the Go version (`go 1.22`).",
+    "initializationPatterns": [
+      {
+        "description": "Standard initialization of an untyped EventBus with custom configuration. This is the primary entry point for using the event bus.",
+        "codeExample": "package main\n\nimport (\n\t\"log\"\n\t\"time\"\n\n\t\"github.com/asaidimu/go-events\"\n)\n\nfunc main() {\n\tcfg := &events.EventBusConfig{\n\t\tAsync:          true,\n\t\tBatchSize:      100,\n\t\tBatchDelay:     10 * time.Millisecond,\n\t\tErrorHandler: func(err *events.EventError) {\n\t\t\tlog.Printf(\"EventBus Critical Error: %v\", err)\n\t\t},\n\t\tMaxRetries:     3,\n\t\tRetryDelay:     100 * time.Millisecond,\n\t\tEventTimeout:   5 * time.Second,\n\t\tShutdownTimeout: 5 * time.Second,\n\t}\n\tbus, err := events.NewEventBus(cfg)\n\tif err != nil {\n\t\tlog.Fatalf(\"Failed to create event bus: %v\", err)\n\t}\n\tdefer bus.Close() // Essential for graceful shutdown\n\n\t// Application logic goes here\n}"
+      },
+      {
+        "description": "Initialization of a type-safe EventBus using Go generics. Recommended for compile-time type checking of event payloads.",
+        "codeExample": "package main\n\nimport (\n\t\"log\"\n\n\t\"github.com/asaidimu/go-events\"\n)\n\n// Define a specific type for event payloads\ntype UserUpdateEvent struct { UserID string; NewName string }\n\nfunc main() {\n\t// Pass nil for default configuration or a custom *EventBusConfig\n\ttypedBus, err := events.NewTypedEventBus[UserUpdateEvent](nil)\n\tif err != nil {\n\t\tlog.Fatalf(\"Failed to create typed event bus: %v\", err)\n\t}\n\tdefer typedBus.Close()\n\n\t// Application logic with typed events\n\t// typedBus.Emit(\"user.updated\", UserUpdateEvent{UserID: \"123\", NewName: \"Alice\"})\n}"
+      }
+    ],
+    "commonPitfalls": [
+      {
+        "issue": "Forgetting to call `bus.Close()` on an asynchronous `EventBus`.",
+        "solution": "Always use `defer bus.Close()` immediately after `NewEventBus` or `NewTypedEventBus` in your application's main function or service startup routine to ensure graceful shutdown and prevent goroutine leaks."
+      },
+      {
+        "issue": "Events are silently dropped in asynchronous mode.",
+        "solution": "In `Async: true` mode, events are dropped if no active listeners exist. Ensure all necessary subscriptions are established *before* emitting events. For critical events that must be processed regardless of listeners, consider `Async: false` (synchronous mode) or implementing a `CrossProcessBackend` with a persistent message queue."
+      },
+      {
+        "issue": "Long-running or blocking operations inside event handlers.",
+        "solution": "Event handlers should be designed to be fast and non-blocking. For computationally intensive or I/O-bound tasks, consider offloading them to separate goroutines or external worker queues. Utilize `EventTimeout` in `EventBusConfig` and ensure handlers check `context.Done()` to prevent indefinite blocking."
+      },
+      {
+        "issue": "Type mismatch errors when using `TypedEventBus`.",
+        "solution": "Ensure that the generic type `T` specified during `NewTypedEventBus[T]` instantiation precisely matches the type of the `payload` passed to `typedBus.Emit()`. For example, if `T` is `MyStruct`, `Emit(\"event\", MyStruct{})` is correct, but `Emit(\"event\", &MyStruct{})` will result in a type assertion error."
+      }
+    ],
+    "lifecycleDependencies": "The `EventBus` should be initialized at the start of your application's lifecycle (e.g., in `main()` or your service's `init()` function). This ensures it's ready to accept subscriptions and emit events. The `Close()` method must be called during application shutdown to allow pending asynchronous events to complete processing within the `ShutdownTimeout` and to release resources. This is commonly achieved using `defer bus.Close()` or integrating with OS signal handling in long-running services. Handlers typically subscribe after the bus is initialized and unsubscribe via their returned function or `UnsubscribeAll` when specific event processing is no longer required."
+  },
+  "types": {
+    "EventError": {
+      "id": "type:EventError",
+      "definition": "struct { Err error; EventName string; Payload interface{}; Timestamp time.Time }",
+      "purpose": "Represents an error that occurs within the EventBus, providing contextual information about the event that caused the error.",
+      "related": {
+        "methods": [],
+        "patterns": []
+      },
+      "interfaceContract": {
+        "requiredMethods": [],
+        "optionalMethods": [
+          {
+            "name": "Error",
+            "signature": "func (e *EventError) Error() string",
+            "defaultBehavior": "Returns a formatted string representing the error, including event name and timestamp.",
+            "parameters": "None",
+            "returnValue": "string: A human-readable error message.",
+            "sideEffects": "None."
+          },
+          {
+            "name": "Unwrap",
+            "signature": "func (e *EventError) Unwrap() error",
+            "defaultBehavior": "Returns the underlying error (`e.Err`), supporting Go 1.13+ error unwrapping.",
+            "parameters": "None",
+            "returnValue": "error: The underlying error that caused the `EventError`.",
+            "sideEffects": "None."
+          }
+        ],
+        "parameterObjectStructures": {}
+      }
+    },
+    "EventMetrics": {
+      "id": "type:EventMetrics",
+      "definition": "struct { TotalEvents int64; ActiveSubscriptions int64; EventCounts map[string]int64; AverageEmitDuration time.Duration; QueueSize int; ProcessedBatches int64; ErrorCount int64; SubscriptionCounts map[string]int; DroppedEvents int64 }",
+      "purpose": "Contains real-time usage and performance metrics of the EventBus, providing insights into its operation and health.",
+      "related": {
+        "methods": [
+          "method:GetMetrics"
+        ],
+        "patterns": []
+      },
+      "interfaceContract": {
+        "requiredMethods": [],
+        "optionalMethods": [],
+        "parameterObjectStructures": {}
+      }
+    },
+    "Event": {
+      "id": "type:Event",
+      "definition": "struct { Name string; Payload interface{}; Timestamp time.Time; IsCrossProcess bool }",
+      "purpose": "Represents an event, encapsulating its name, payload, creation timestamp, and origin (if from a cross-process backend).",
+      "related": {
+        "methods": [
+          "method:Emit",
+          "method:EmitWithContext"
+        ],
+        "patterns": []
+      },
+      "interfaceContract": {
+        "requiredMethods": [],
+        "optionalMethods": [],
+        "parameterObjectStructures": {}
+      }
+    },
+    "EventHandler": {
+      "id": "type:EventHandler",
+      "definition": "func(ctx context.Context, payload interface{}) error",
+      "purpose": "A type alias defining the signature for functions that handle events. Handlers receive a context and the event's payload, returning an error if processing fails.",
+      "related": {
+        "methods": [
+          "method:Subscribe",
+          "method:SubscribeWithOptions"
+        ],
+        "patterns": []
+      },
+      "interfaceContract": {
+        "requiredMethods": [],
+        "optionalMethods": [],
+        "parameterObjectStructures": {}
+      }
+    },
+    "ErrorHandler": {
+      "id": "type:ErrorHandler",
+      "definition": "func(error *EventError)",
+      "purpose": "A type alias defining the signature for a custom function to handle errors that occur during event processing within the EventBus, including recovered panics.",
+      "related": {
+        "methods": [
+          "method:NewEventBus"
+        ],
+        "patterns": []
+      },
+      "interfaceContract": {
+        "requiredMethods": [],
+        "optionalMethods": [],
+        "parameterObjectStructures": {}
+      }
+    },
+    "EventFilter": {
+      "id": "type:EventFilter",
+      "definition": "func(event Event) bool",
+      "purpose": "A type alias defining the signature for a function that determines if an event should be processed. Returns `true` if the event should be processed, `false` otherwise.",
+      "related": {
+        "methods": [
+          "method:NewEventBus",
+          "method:SubscribeWithOptions"
+        ],
+        "patterns": []
+      },
+      "interfaceContract": {
+        "requiredMethods": [],
+        "optionalMethods": [],
+        "parameterObjectStructures": {}
+      }
+    },
+    "EventBusConfig": {
+      "id": "type:EventBusConfig",
+      "definition": "struct { Async bool; BatchSize int; BatchDelay time.Duration; ErrorHandler ErrorHandler; EnableCrossProcess bool; CrossProcessChannel string; CrossProcessBackend CrossProcessBackend; MaxRetries int; RetryDelay time.Duration; EventTimeout time.Duration; EventFilter EventFilter; ShutdownTimeout time.Duration }",
+      "purpose": "Contains configuration options for creating and customizing an `EventBus` instance, affecting its processing mode, error handling, and integration capabilities.",
+      "related": {
+        "methods": [
+          "method:NewEventBus",
+          "method:DefaultConfig"
+        ],
+        "patterns": []
+      },
+      "interfaceContract": {
+        "requiredMethods": [],
+        "optionalMethods": [],
+        "parameterObjectStructures": {}
+      }
+    },
+    "SubscribeOptions": {
+      "id": "type:SubscribeOptions",
+      "definition": "struct { Once bool; Filter EventFilter }",
+      "purpose": "Provides additional options that can be applied to individual event subscriptions, such as one-time execution or a specific filter function.",
+      "related": {
+        "methods": [
+          "method:SubscribeWithOptions"
+        ],
+        "patterns": []
+      },
+      "interfaceContract": {
+        "requiredMethods": [],
+        "optionalMethods": [],
+        "parameterObjectStructures": {}
+      }
+    },
+    "CrossProcessBackend": {
+      "id": "type:CrossProcessBackend",
+      "definition": "interface { Send(channelName string, event Event) error; Subscribe(channelName string, handler func(Event)) error; Close() error }",
+      "purpose": "An interface that allows the EventBus to integrate with external messaging systems (e.g., NATS, RabbitMQ) for distributed event communication.",
+      "related": {
+        "methods": [
+          "method:NewEventBus"
+        ],
+        "patterns": [
+          "pattern:Cross-Process Communication Setup"
+        ]
+      },
+      "interfaceContract": {
+        "requiredMethods": [
+          {
+            "name": "Send",
+            "signature": "Send(channelName string, event Event) error",
+            "parameters": "channelName (string): The name of the channel to send the event to. event (Event): The event to dispatch.",
+            "returnValue": "error: An error if sending fails, nil otherwise.",
+            "sideEffects": "Dispatches the `event` to the specified `channelName` across processes, typically involving network I/O and interaction with an external message broker."
+          },
+          {
+            "name": "Subscribe",
+            "signature": "Subscribe(channelName string, handler func(Event)) error",
+            "parameters": "channelName (string): The name of the channel to subscribe to. handler (func(Event)): A callback function that will be invoked when an event is received from the channel.",
+            "returnValue": "error: An error if subscription fails, nil otherwise.",
+            "sideEffects": "Registers a handler to receive events from the specified `channelName` across processes. Typically involves establishing a network subscription."
+          },
+          {
+            "name": "Close",
+            "signature": "Close() error",
+            "parameters": "None",
+            "returnValue": "error: An error if closing the backend fails, nil otherwise.",
+            "sideEffects": "Shuts down the cross-process backend gracefully, releasing any underlying network connections or resources."
+          }
+        ],
+        "optionalMethods": [],
+        "parameterObjectStructures": {}
+      }
+    }
+  },
+  "methods": {
+    "DefaultConfig": {
+      "id": "method:DefaultConfig",
+      "useCase": "To get a baseline configuration for the EventBus, which can then be customized.",
+      "signature": "func DefaultConfig() *EventBusConfig",
+      "parameters": "None",
+      "prerequisites": "None",
+      "sideEffects": "None",
+      "returnValue": "*EventBusConfig: A pointer to a new `EventBusConfig` struct initialized with default values.",
+      "exceptions": [],
+      "availability": "sync",
+      "status": "active",
+      "related": {
+        "types": [
+          "type:EventBusConfig"
+        ],
+        "patterns": [],
+        "errors": []
+      }
+    },
+    "NewEventBus": {
+      "id": "method:NewEventBus",
+      "useCase": "To create a new instance of the in-memory event bus, configuring its behavior (async/sync, error handling, etc.).",
+      "signature": "func NewEventBus(config *EventBusConfig) (*EventBus, error)",
+      "parameters": "config (*EventBusConfig): Optional. A pointer to an `EventBusConfig` struct to customize the bus. If `nil`, `DefaultConfig()` is used.",
+      "prerequisites": "Go runtime environment (Go 1.22+). If `config.EnableCrossProcess` is true, `config.CrossProcessBackend` must be non-nil.",
+      "sideEffects": "Initializes internal data structures (maps, lists, channels), starts dispatcher goroutine if `Async` is true, and initializes cross-process backend if enabled.",
+      "returnValue": "*EventBus: A pointer to the newly created `EventBus` instance.\nerror: An error if initialization fails (e.g., cross-process backend fails to initialize), `nil` otherwise.",
+      "exceptions": [
+        "fmt.Errorf(\"failed to initialize cross-process backend\")"
+      ],
+      "availability": "sync",
+      "status": "active",
+      "related": {
+        "types": [
+          "type:EventBusConfig"
+        ],
+        "patterns": [
+          "pattern:EventBus Initialization"
+        ],
+        "errors": []
+      }
+    },
+    "EventBus.Close": {
+      "id": "method:EventBus.Close",
+      "useCase": "To gracefully shut down the EventBus, ensuring all pending asynchronous events are processed and resources are released. Crucial to prevent goroutine leaks.",
+      "signature": "func (bus *EventBus) Close() error",
+      "parameters": "None",
+      "prerequisites": "The `EventBus` instance must be initialized and not already closed.",
+      "sideEffects": "Cancels the bus's internal context, signals dispatcher to stop and drain queues, waits for goroutines (up to `ShutdownTimeout`), and closes the `CrossProcessBackend`.",
+      "returnValue": "error: An error if the bus is already closed, or if the `CrossProcessBackend.Close()` method returns an error. Returns `nil` on successful graceful shutdown.",
+      "exceptions": [
+        "fmt.Errorf(\"event bus already closed\")",
+        "fmt.Errorf(\"failed to close cross-process backend\")"
+      ],
+      "availability": "sync",
+      "status": "active",
+      "related": {
+        "types": [],
+        "patterns": [
+          "pattern:Graceful Shutdown"
+        ],
+        "errors": []
+      }
+    },
+    "EventBus.Emit": {
+      "id": "method:EventBus.Emit",
+      "useCase": "To dispatch an event to all registered subscribers using `context.Background()`. This is the primary way to trigger event processing.",
+      "signature": "func (bus *EventBus) Emit(eventName string, payload interface{})",
+      "parameters": "eventName (string): The name of the event to emit. payload (interface{}): The data associated with the event.",
+      "prerequisites": "The `EventBus` instance must be initialized and open (not closed).",
+      "sideEffects": "Increments `TotalEvents` and event-specific counts. In async mode, adds event to internal queue or drops it if no listeners. In sync mode, immediately triggers handler execution. May trigger `CrossProcessBackend.Send`.",
+      "returnValue": "None",
+      "exceptions": [],
+      "availability": "sync (non-blocking for producers for async bus)",
+      "status": "active",
+      "related": {
+        "types": [
+          "type:Event"
+        ],
+        "patterns": [
+          "pattern:Basic Subscribe/Emit"
+        ],
+        "errors": [
+          "error:Event Dropped"
+        ]
+      }
+    },
+    "EventBus.EmitWithContext": {
+      "id": "method:EventBus.EmitWithContext",
+      "useCase": "To dispatch an event with a custom `context.Context`, allowing for cancellation, deadlines, or value propagation to event handlers.",
+      "signature": "func (bus *EventBus) EmitWithContext(ctx context.Context, eventName string, payload interface{})",
+      "parameters": "ctx (context.Context): The context to propagate to event handlers. eventName (string): The name of the event to emit. payload (interface{}): The data associated with the event.",
+      "prerequisites": "The `EventBus` instance must be initialized and open (not closed).",
+      "sideEffects": "Same as `Emit`, but handlers receive the provided `ctx`.",
+      "returnValue": "None",
+      "exceptions": [],
+      "availability": "sync (non-blocking for producers for async bus)",
+      "status": "active",
+      "related": {
+        "types": [
+          "type:Event"
+        ],
+        "patterns": [],
+        "errors": [
+          "error:Event Dropped"
+        ]
+      }
+    },
+    "EventBus.GetMetrics": {
+      "id": "method:EventBus.GetMetrics",
+      "useCase": "To retrieve the current operational statistics and performance metrics of the EventBus, useful for monitoring and debugging.",
+      "signature": "func (bus *EventBus) GetMetrics() EventMetrics",
+      "parameters": "None",
+      "prerequisites": "The `EventBus` instance must be initialized.",
+      "sideEffects": "None (read-only operation on metrics).",
+      "returnValue": "EventMetrics: A struct containing various performance and usage statistics.",
+      "exceptions": [],
+      "availability": "sync",
+      "status": "active",
+      "related": {
+        "types": [
+          "type:EventMetrics"
+        ],
+        "patterns": [],
+        "errors": []
+      }
+    },
+    "EventBus.Subscribe": {
+      "id": "method:EventBus.Subscribe",
+      "useCase": "To register an `EventHandler` function to be called when an event with a specific name is emitted.",
+      "signature": "func (bus *EventBus) Subscribe(eventName string, handler EventHandler) func()",
+      "parameters": "eventName (string): The name of the event to subscribe to. handler (EventHandler): The function to call when the event is emitted.",
+      "prerequisites": "The `EventBus` instance must be initialized and open (not closed).",
+      "sideEffects": "Adds the handler to the internal list of subscribers for `eventName`. Increases `ActiveSubscriptions` and `SubscriptionCounts`.",
+      "returnValue": "func(): A function that, when called, will unsubscribe this specific handler from the event. Calling it multiple times has no further effect.",
+      "exceptions": [],
+      "availability": "sync",
+      "status": "active",
+      "related": {
+        "types": [
+          "type:EventHandler"
+        ],
+        "patterns": [
+          "pattern:Basic Subscribe/Emit"
+        ],
+        "errors": []
+      }
+    },
+    "EventBus.SubscribeWithOptions": {
+      "id": "method:EventBus.SubscribeWithOptions",
+      "useCase": "To register an `EventHandler` with additional options, such as `Once` (execute only once) or a custom `EventFilter` (filter events for this specific subscription).",
+      "signature": "func (bus *EventBus) SubscribeWithOptions(eventName string, handler EventHandler, opts SubscribeOptions) func()",
+      "parameters": "eventName (string): The name of the event to subscribe to. handler (EventHandler): The function to call when the event is emitted. opts (SubscribeOptions): Options for this specific subscription (e.g., `Once`, `Filter`).",
+      "prerequisites": "The `EventBus` instance must be initialized and open (not closed).",
+      "sideEffects": "Adds the handler with specified options to the internal list of subscribers for `eventName`. Increases `ActiveSubscriptions` and `SubscriptionCounts`.",
+      "returnValue": "func(): A function that, when called, will unsubscribe this specific handler from the event.",
+      "exceptions": [],
+      "availability": "sync",
+      "status": "active",
+      "related": {
+        "types": [
+          "type:EventHandler",
+          "type:SubscribeOptions"
+        ],
+        "patterns": [],
+        "errors": []
+      }
+    },
+    "EventBus.UnsubscribeAll": {
+      "id": "method:EventBus.UnsubscribeAll",
+      "useCase": "To remove all currently registered handlers for a specific event name.",
+      "signature": "func (bus *EventBus) UnsubscribeAll(eventName string)",
+      "parameters": "eventName (string): The name of the event for which all subscriptions should be removed.",
+      "prerequisites": "The `EventBus` instance must be initialized.",
+      "sideEffects": "Removes all handlers associated with `eventName` from the internal subscriber map. Decreases `ActiveSubscriptions`.",
+      "returnValue": "None",
+      "exceptions": [],
+      "availability": "sync",
+      "status": "active",
+      "related": {
+        "types": [],
+        "patterns": [],
+        "errors": []
+      }
+    },
+    "NewTypedEventBus": {
+      "id": "method:NewTypedEventBus",
+      "useCase": "To create a new type-safe `EventBus` instance using Go generics, ensuring event payloads conform to a specified type `T` at compile time.",
+      "signature": "func NewTypedEventBus[T any](config *EventBusConfig) (*TypedEventBus[T], error)",
+      "parameters": "config (*EventBusConfig): Optional. A pointer to an `EventBusConfig` struct for the underlying untyped bus. If `nil`, `DefaultConfig()` is used.",
+      "prerequisites": "Go runtime environment (Go 1.22+).",
+      "sideEffects": "Initializes an underlying `EventBus` instance and wraps it.",
+      "returnValue": "*TypedEventBus[T]: A pointer to the newly created type-safe `EventBus` instance.\nerror: An error if the underlying `EventBus` initialization fails, `nil` otherwise.",
+      "exceptions": [],
+      "availability": "sync",
+      "status": "active",
+      "related": {
+        "types": [
+          "type:EventBusConfig",
+          "type:TypedEventBus"
+        ],
+        "patterns": [
+          "pattern:Typed EventBus Initialization"
+        ],
+        "errors": []
+      }
+    },
+    "TypedEventBus.Close": {
+      "id": "method:TypedEventBus.Close",
+      "useCase": "To gracefully shut down the underlying untyped `EventBus` instance managed by the `TypedEventBus`.",
+      "signature": "func (tbus *TypedEventBus[T]) Close() error",
+      "parameters": "None",
+      "prerequisites": "The `TypedEventBus` instance must be initialized and not already closed.",
+      "sideEffects": "Calls `EventBus.Close()` on the internal bus.",
+      "returnValue": "error: An error if the underlying bus's `Close()` method returns an error.",
+      "exceptions": [],
+      "availability": "sync",
+      "status": "active",
+      "related": {
+        "types": [],
+        "patterns": [
+          "pattern:Graceful Shutdown"
+        ],
+        "errors": []
+      }
+    },
+    "TypedEventBus.Emit": {
+      "id": "method:TypedEventBus.Emit",
+      "useCase": "To dispatch a typed event (`payload` of type `T`) to all registered typed subscribers using `context.Background()`.",
+      "signature": "func (tbus *TypedEventBus[T]) Emit(eventName string, payload T)",
+      "parameters": "eventName (string): The name of the event to emit. payload (T): The data associated with the event, strictly typed to `T`.",
+      "prerequisites": "The `TypedEventBus` instance must be initialized and open.",
+      "sideEffects": "Calls `EventBus.Emit()` on the underlying bus with the typed payload.",
+      "returnValue": "None",
+      "exceptions": [],
+      "availability": "sync (non-blocking for producers for async bus)",
+      "status": "active",
+      "related": {
+        "types": [
+          "type:Event"
+        ],
+        "patterns": [
+          "pattern:Typed Subscribe/Emit"
+        ],
+        "errors": [
+          "error:Event Dropped"
+        ]
+      }
+    },
+    "TypedEventBus.EmitWithContext": {
+      "id": "method:TypedEventBus.EmitWithContext",
+      "useCase": "To dispatch a typed event (`payload` of type `T`) with a custom `context.Context` to all registered typed subscribers.",
+      "signature": "func (tbus *TypedEventBus[T]) EmitWithContext(ctx context.Context, eventName string, payload T)",
+      "parameters": "ctx (context.Context): The context to propagate. eventName (string): The name of the event. payload (T): The strictly typed event data.",
+      "prerequisites": "The `TypedEventBus` instance must be initialized and open.",
+      "sideEffects": "Calls `EventBus.EmitWithContext()` on the underlying bus.",
+      "returnValue": "None",
+      "exceptions": [],
+      "availability": "sync (non-blocking for producers for async bus)",
+      "status": "active",
+      "related": {
+        "types": [
+          "type:Event"
+        ],
+        "patterns": [],
+        "errors": [
+          "error:Event Dropped"
+        ]
+      }
+    },
+    "TypedEventBus.GetMetrics": {
+      "id": "method:TypedEventBus.GetMetrics",
+      "useCase": "To retrieve the current operational metrics of the underlying `EventBus` instance.",
+      "signature": "func (tbus *TypedEventBus[T]) GetMetrics() EventMetrics",
+      "parameters": "None",
+      "prerequisites": "The `TypedEventBus` instance must be initialized.",
+      "sideEffects": "None.",
+      "returnValue": "EventMetrics: The metrics of the underlying `EventBus`.",
+      "exceptions": [],
+      "availability": "sync",
+      "status": "active",
+      "related": {
+        "types": [
+          "type:EventMetrics"
+        ],
+        "patterns": [],
+        "errors": []
+      }
+    },
+    "TypedEventBus.Subscribe": {
+      "id": "method:TypedEventBus.Subscribe",
+      "useCase": "To register a typed `EventHandler` function for a specific event, where the handler receives the payload already asserted to type `T`.",
+      "signature": "func (tbus *TypedEventBus[T]) Subscribe(eventName string, handler func(ctx context.Context, payload T) error) func()",
+      "parameters": "eventName (string): The name of the event to subscribe to. handler (func(ctx context.Context, payload T) error): The type-safe function to call when the event is emitted.",
+      "prerequisites": "The `TypedEventBus` instance must be initialized and open.",
+      "sideEffects": "Registers an internal untyped handler that performs type assertion, then calls the provided typed handler. Increases `ActiveSubscriptions` and `SubscriptionCounts` on the underlying bus.",
+      "returnValue": "func(): A function that, when called, will unsubscribe this specific typed handler.",
+      "exceptions": [
+        "fmt.Errorf(\"type assertion failed for event '%s': expected %T, got %T\")"
+      ],
+      "availability": "sync",
+      "status": "active",
+      "related": {
+        "types": [
+          "type:EventHandler"
+        ],
+        "patterns": [
+          "pattern:Typed Subscribe/Emit"
+        ],
+        "errors": []
+      }
+    },
+    "TypedEventBus.SubscribeWithOptions": {
+      "id": "method:TypedEventBus.SubscribeWithOptions",
+      "useCase": "To register a typed `EventHandler` with additional options (e.g., `Once`, `Filter`), where the handler receives the payload already asserted to type `T`.",
+      "signature": "func (tbus *TypedEventBus[T]) SubscribeWithOptions(eventName string, handler func(ctx context.Context, payload T) error, opts SubscribeOptions) func()",
+      "parameters": "eventName (string): The event name. handler (func(ctx context.Context, payload T) error): The typed handler. opts (SubscribeOptions): Options for this subscription.",
+      "prerequisites": "The `TypedEventBus` instance must be initialized and open.",
+      "sideEffects": "Same as `TypedEventBus.Subscribe`, but applies `opts` to the underlying subscription.",
+      "returnValue": "func(): A function to unsubscribe this specific typed handler.",
+      "exceptions": [
+        "fmt.Errorf(\"type assertion failed for event '%s': expected %T, got %T\")"
+      ],
+      "availability": "sync",
+      "status": "active",
+      "related": {
+        "types": [
+          "type:EventHandler",
+          "type:SubscribeOptions"
+        ],
+        "patterns": [],
+        "errors": []
+      }
+    }
+  },
+  "decisionTrees": {
+    "EventBusModeSelection": {
+      "id": "decisionTree:EventBusModeSelection",
+      "question": "Should event processing block the emitter (producer) or run in the background?",
+      "logic": "IF [need immediate execution and direct feedback from handlers, or low event volume] THEN [configure EventBus with Async: false (Synchronous Mode)] ELSE IF [need non-blocking event emission for producers, high throughput, or background processing] THEN [configure EventBus with Async: true (Asynchronous Mode)]",
+      "validationMethod": "Observe `Emit` call blocking behavior, check `GetMetrics().QueueSize` (sync will be 0, async will buffer).",
+      "related": {
+        "methods": [
+          "method:NewEventBus"
+        ],
+        "patterns": []
+      }
+    },
+    "EventPayloadTypeSafety": {
+      "id": "decisionTree:EventPayloadTypeSafety",
+      "question": "Do I need compile-time type safety for event payloads, or is runtime type assertion acceptable?",
+      "logic": "IF [payloads for an event name are consistently of a single, known type and compile-time checks are desired] THEN [use NewTypedEventBus[T] where T is the specific type] ELSE IF [payloads for an event name can vary in type, or runtime flexibility is preferred] THEN [use NewEventBus and perform runtime type assertions (payload.(MyType)) in handlers]",
+      "validationMethod": "Compile-time errors if type mismatch (TypedEventBus) vs. runtime panics/errors (untyped EventBus if assertion fails).",
+      "related": {
+        "methods": [
+          "method:NewTypedEventBus",
+          "method:NewEventBus"
+        ],
+        "patterns": [
+          "pattern:Typed Subscribe/Emit"
+        ]
+      }
+    },
+    "CrossProcessIntegration": {
+      "id": "decisionTree:CrossProcessIntegration",
+      "question": "Do events need to be communicated between different application instances or services?",
+      "logic": "IF [yes, events need to transcend process boundaries] THEN [implement the CrossProcessBackend interface and configure EventBusConfig.EnableCrossProcess with a concrete backend implementation] ELSE [use the EventBus solely for in-process communication]",
+      "validationMethod": "Verify event reception by subscribing on a separate bus instance connected via the `CrossProcessBackend`.",
+      "related": {
+        "methods": [
+          "method:NewEventBus"
+        ],
+        "patterns": [
+          "pattern:Cross-Process Communication Setup"
+        ]
+      }
+    },
+    "HandlerErrorRecovery": {
+      "id": "decisionTree:HandlerErrorRecovery",
+      "question": "How should errors returned by event handlers be managed?",
+      "logic": "IF [transient errors are expected, and retrying the handler might resolve the issue] THEN [set EventBusConfig.MaxRetries to > 0 and EventBusConfig.RetryDelay] ELSE IF [persistent errors or no retries desired] THEN [rely on the configured EventBusConfig.ErrorHandler for logging/alerting immediately]",
+      "validationMethod": "Observe `ErrorHandler` logs after a handler returns an error, check if retries are attempted.",
+      "related": {
+        "methods": [
+          "method:NewEventBus"
+        ],
+        "patterns": [
+          "pattern:Configure event bus with retries and timeout",
+          "pattern:Handler with expected error"
+        ]
+      }
+    }
+  },
+  "patterns": {
+    "EventBus Initialization": {
+      "id": "pattern:EventBus Initialization",
+      "description": "Standard way to create and configure a new `EventBus` instance.",
+      "example": {
+        "code": "bus, err := events.NewEventBus(&events.EventBusConfig{\n\tAsync:      true,\n\tBatchSize:  100,\n\tBatchDelay: 10 * time.Millisecond,\n\tErrorHandler: func(e *events.EventError) {\n\t\tlog.Printf(\"Error processing event %s: %v\", e.EventName, e.Err)\n\t},\n})\nif err != nil { log.Fatalf(\"Failed to create bus: %v\", err) }\ndefer bus.Close()",
+        "validation": "Bus instance is not nil and no error is returned; `bus.Close()` is deferred for graceful shutdown."
+      },
+      "related": {
+        "methods": [
+          "method:NewEventBus",
+          "method:DefaultConfig",
+          "method:EventBus.Close"
+        ],
+        "errors": []
+      }
+    },
+    "Basic Subscribe/Emit": {
+      "id": "pattern:Basic Subscribe/Emit",
+      "description": "Fundamental pattern for registering a handler and dispatching an event without special options.",
+      "example": {
+        "code": "unsubscribe := bus.Subscribe(\"user.created\", func(ctx context.Context, payload interface{}) error {\n\tuser := payload.(map[string]interface{})\n\tfmt.Printf(\"User created: %s\\n\", user[\"name\"])\n\treturn nil\n})\ndefer unsubscribe()\nbus.Emit(\"user.created\", map[string]interface{}{\"id\": \"123\", \"name\": \"Alice\"})",
+        "validation": "Handler prints 'User created: Alice' to console."
+      },
+      "related": {
+        "methods": [
+          "method:EventBus.Subscribe",
+          "method:EventBus.Emit"
+        ],
+        "errors": []
+      }
+    },
+    "Typed Subscribe/Emit": {
+      "id": "pattern:Typed Subscribe/Emit",
+      "description": "Pattern for using `TypedEventBus` to ensure compile-time type safety for event payloads.",
+      "example": {
+        "code": "type Order struct { ID string; Amount float64 }\ntypedBus, err := events.NewTypedEventBus[Order](nil)\nif err != nil { log.Fatalf(\"Failed: %v\", err) }\ndefer typedBus.Close()\n\nunsubscribe := typedBus.Subscribe(\"order.placed\", func(ctx context.Context, order Order) error {\n\tfmt.Printf(\"Order placed: %s, Amount: %.2f\\n\", order.ID, order.Amount)\n\treturn nil\n})\ndefer unsubscribe()\n\ntypedBus.Emit(\"order.placed\", Order{ID: \"ABC\", Amount: 99.99})",
+        "validation": "Handler prints 'Order placed: ABC, Amount: 99.99' to console, and no runtime type assertion is needed inside the handler."
+      },
+      "related": {
+        "methods": [
+          "method:NewTypedEventBus",
+          "method:TypedEventBus.Subscribe",
+          "method:TypedEventBus.Emit"
+        ],
+        "errors": []
+      }
+    },
+    "Error Handling with Retries": {
+      "id": "pattern:Error Handling with Retries",
+      "description": "Configuring the EventBus to automatically retry failed event handlers and catch panics.",
+      "example": {
+        "code": "bus, _ := events.NewEventBus(&events.EventBusConfig{\n\tMaxRetries: 1,\n\tRetryDelay: 50 * time.Millisecond,\n\tErrorHandler: func(e *events.EventError) {\n\t\tlog.Printf(\"Caught error in handler: %v\", e.Err)\n\t},\n})\ndefer bus.Close()\n\nbus.Subscribe(\"failing.task\", func(ctx context.Context, payload interface{}) error {\n\tfmt.Println(\"Attempting task for: \", payload)\n\treturn fmt.Errorf(\"simulated failure\")\n})\nbus.Emit(\"failing.task\", \"data-item\")",
+        "validation": "Console output shows 'Attempting task for: data-item' twice (initial + 1 retry), followed by 'Caught error in handler: simulated failure'."
+      },
+      "related": {
+        "methods": [
+          "method:NewEventBus"
+        ],
+        "errors": [
+          "error:EventHandlerFailure",
+          "error:PanicRecovered"
+        ]
+      }
+    },
+    "Cross-Process Communication Setup": {
+      "id": "pattern:Cross-Process Communication Setup",
+      "description": "Integrating a custom `CrossProcessBackend` to enable event flow between different application instances.",
+      "example": {
+        "code": "// Assume MockCrossProcessBackend implements events.CrossProcessBackend\nmockBackend := NewMockCrossProcessBackend(\"AppInstance1\")\n\nbus, err := events.NewEventBus(&events.EventBusConfig{\n\tEnableCrossProcess:  true,\n\tCrossProcessChannel: \"shared.channel\",\n\tCrossProcessBackend: mockBackend,\n})\nif err != nil { log.Fatalf(\"Error: %v\", err) }\ndefer bus.Close()",
+        "validation": "Bus initializes without error. Events emitted by this bus are sent via `mockBackend.Send`. Events received by `mockBackend.Subscribe` are re-emitted locally by the bus."
+      },
+      "related": {
+        "methods": [
+          "method:NewEventBus"
+        ],
+        "errors": []
+      }
+    }
+  },
+  "errors": {
+    "EventHandlerFailure": {
+      "id": "error:EventHandlerFailure",
+      "type": "error (returned by EventHandler)",
+      "symptoms": "An `EventHandler` function returns a non-nil error, indicating a failure in processing the event. This error will be passed to the configured `ErrorHandler`.",
+      "properties": "The `EventError` object passed to `ErrorHandler` will contain:\n- `Err`: The specific error returned by the handler.\n- `EventName`: The name of the event that failed.\n- `Payload`: The payload of the event.\n- `Timestamp`: When the error occurred.",
+      "scenarios": [
+        {
+          "trigger": "An `EventHandler` encounters a business logic error (e.g., database write failure, external API call error) and explicitly `return fmt.Errorf(...)`.",
+          "example": "bus.Subscribe(\"payment.process\", func(ctx context.Context, payload interface{}) error {\n\tif payload.(Payment).Amount < 0 {\n\t\treturn fmt.Errorf(\"invalid payment amount\")\n\t}\n\t// ... actual processing ...\n\treturn nil\n})",
+          "reason": "Handler returned an error indicating a functional failure."
+        },
+        {
+          "trigger": "An `EventHandler` fails to convert or assert the `payload` to its expected type, and returns an error.",
+          "example": "bus.Subscribe(\"user.update\", func(ctx context.Context, payload interface{}) error {\n\t_, ok := payload.(UserUpdateEvent)\n\tif !ok {\n\t\treturn fmt.Errorf(\"invalid payload type: %T\", payload)\n\t}\n\treturn nil\n})",
+          "reason": "Payload type mismatch, leading to a type assertion failure."
+        }
+      ],
+      "diagnosis": "Check the `EventBusConfig.ErrorHandler`'s output for specific error messages and event details. Review the `EventHandler`'s code for explicit error returns. Observe `GetMetrics().ErrorCount`.",
+      "resolution": "Implement appropriate retry logic (`MaxRetries`, `RetryDelay`) for transient errors. For persistent errors, update the handler logic to correctly handle expected conditions or to validate input. Ensure `ErrorHandler` logs enough detail for debugging.",
+      "prevention": "Implement input validation within handlers. Use `TypedEventBus` to prevent runtime type assertion failures for known payload types.",
+      "handlingPatterns": "Catch the error in the `ErrorHandler` function (e.g., log, send to monitoring, trigger alerts). For retriable errors, configure `MaxRetries` and `RetryDelay` in `EventBusConfig`. If an error is unrecoverable, the `ErrorHandler` is the final point for notification.",
+      "propagationBehavior": "Errors returned by handlers are caught by the `EventBus`'s internal processing logic and passed to the configured `ErrorHandler`. They do not propagate up to the `Emit` caller unless the bus is running synchronously (`Async: false`) and the error occurs in the last retry, at which point the final error is passed to the `ErrorHandler`."
+    },
+    "PanicRecovered": {
+      "id": "error:PanicRecovered",
+      "type": "runtime.Panic",
+      "symptoms": "An `EventHandler` executes a `panic()`. The `EventBus` recovers from this panic, preventing the application from crashing, and reports it via the `ErrorHandler`.",
+      "properties": "The `EventError` object passed to `ErrorHandler` will contain:\n- `Err`: An error wrapping the panic value and stack trace.\n- `EventName`: The name of the event from the panicking handler.\n- `Payload`: The payload of the event.\n- `Timestamp`: When the panic occurred.",
+      "scenarios": [
+        {
+          "trigger": "A handler attempts to dereference a `nil` pointer or performs an invalid operation that leads to a runtime panic.",
+          "example": "bus.Subscribe(\"buggy.event\", func(ctx context.Context, payload interface{}) error {\n\tvar data *SomeStruct = nil\n\tfmt.Println(data.Field) // This will panic\n\treturn nil\n})",
+          "reason": "Runtime panic (e.g., nil pointer dereference, slice out of bounds) within the handler."
+        },
+        {
+          "trigger": "A handler explicitly calls `panic()` for a specific condition as a form of unrecoverable error signaling.",
+          "example": "bus.Subscribe(\"critical.error\", func(ctx context.Context, payload interface{}) error {\n\tif payload.(string) == \"halt\" {\n\t\tpanic(\"critical system failure, cannot proceed\")\n\t}\n\treturn nil\n})",
+          "reason": "Explicit `panic()` call by the developer."
+        }
+      ],
+      "diagnosis": "Check the `EventBusConfig.ErrorHandler`'s output for messages indicating a recovered panic, often including a stack trace. The `EventError.Err` field will contain details of the panic.",
+      "resolution": "Review the code of the panicking handler to identify and fix the underlying bug that caused the panic. Panics are generally unrecoverable errors that should be fixed at the code level, not handled at runtime (except for recovery mechanisms like `go-events` provides to protect the bus).",
+      "prevention": "Thorough testing, defensive programming (e.g., nil checks), and careful error handling to return errors instead of panicking for expected failure conditions.",
+      "handlingPatterns": "The `ErrorHandler` is the primary mechanism. It should log the panic details (especially the stack trace) to appropriate logging systems and potentially trigger alerts. Panics should typically not be retried."
+    },
+    "Event Dropped": {
+      "id": "error:Event Dropped",
+      "type": "logic error (no active listeners)",
+      "symptoms": "An event is emitted in asynchronous mode, but no corresponding `EventHandler` is invoked. The `GetMetrics().DroppedEvents` counter increases.",
+      "properties": "The `EventError` object passed to `ErrorHandler` will contain:\n- `Err`: A `fmt.Errorf` indicating the event was dropped because no active listeners were found.\n- `EventName`: The name of the event that was dropped.\n- `Payload`: The payload of the dropped event.\n- `Timestamp`: When the event was dropped.",
+      "scenarios": [
+        {
+          "trigger": "An event is emitted (via `Emit` or `EmitWithContext`) for `eventName` while the `EventBus` is in asynchronous mode (`Async: true`), and there are currently no active subscriptions for `eventName`.",
+          "example": "bus, _ := events.NewEventBus(&events.EventBusConfig{Async: true})\nbus.Emit(\"no.listeners\", \"some-data\") // No one subscribed to 'no.listeners'\n// bus.Subscribe(...) is called AFTER Emit, or not at all.",
+          "reason": "Design decision: To prevent unbounded memory growth from events that are not consumed, asynchronous events are discarded if no listener is present at the time of emission."
+        },
+        {
+          "trigger": "An event is emitted, but a global `EventBusConfig.EventFilter` or a specific `SubscribeOptions.Filter` filters out the event before it reaches any handler.",
+          "example": "bus, _ := events.NewEventBus(&events.EventBusConfig{\n\tAsync: true,\n\tEventFilter: func(e events.Event) bool { return e.Name == \"important.only\" }\n})\nbus.Emit(\"unimportant\", \"data\")",
+          "reason": "The event did not pass the filter criteria, either globally or for all potential subscribers."
+        }
+      ],
+      "diagnosis": "Check `GetMetrics().DroppedEvents`. Verify that `bus.Subscribe()` calls are made *before* `bus.Emit()` for critical events. Review `EventBusConfig.EventFilter` and `SubscribeOptions.Filter` logic.",
+      "resolution": "If the event must always be processed, ensure a subscription is active before emission. Alternatively, switch to synchronous mode (`Async: false`) for `NewEventBus` (sync events are always processed regardless of listeners). If cross-process events are involved, ensure the `CrossProcessBackend` is active and correctly configured. Review and adjust any active filters.",
+      "prevention": "Establish all necessary subscriptions early in the application lifecycle. Carefully manage event filters. For guaranteed delivery regardless of listeners, consider a persistent message queue via a `CrossProcessBackend`.",
+      "handlingPatterns": "The default `ErrorHandler` will log a message. If `DroppedEvents` is a significant metric for your application, monitor this counter and trigger alerts if it exceeds a threshold, indicating potential missed events or misconfigured subscriptions/filters. No direct recovery is possible for dropped events as they are discarded.",
+      "propagationBehavior": "This error is internal to the `EventBus`'s processing logic. It is reported to the configured `ErrorHandler` but does not propagate up to the `Emit` caller. The `Emit` call remains non-blocking."
+    }
+  }
+}
