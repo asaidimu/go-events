@@ -2,89 +2,80 @@
 
 ## Environment Requirements
 
-The `go-events` library requires a Go runtime environment version 1.22 or higher. No specific compiler flags or platform-specific constraints beyond standard Go build environments. Utilize `go.mod` to specify the Go version (`go 1.22`).
+Go Runtime Environment version 1.22 or higher.
 
 ## Initialization Patterns
 
-### Standard initialization of an untyped EventBus with custom configuration. This is the primary entry point for using the event bus.
+### Standard initialization of `EventBus` with default configuration and deferred closure.
 ```[DETECTED_LANGUAGE]
 package main
 
 import (
 	"log"
-	"time"
-
 	"github.com/asaidimu/go-events"
 )
 
 func main() {
-	cfg := &events.EventBusConfig{
-		Async:          true,
-		BatchSize:      100,
-		BatchDelay:     10 * time.Millisecond,
-		ErrorHandler: func(err *events.EventError) {
-			log.Printf("EventBus Critical Error: %v", err)
-		},
-		MaxRetries:     3,
-		RetryDelay:     100 * time.Millisecond,
-		EventTimeout:   5 * time.Second,
-		ShutdownTimeout: 5 * time.Second,
-	}
-	bus, err := events.NewEventBus(cfg)
-	if err != nil {
-		log.Fatalf("Failed to create event bus: %v", err)
-	}
-	defer bus.Close() // Essential for graceful shutdown
-
-	// Application logic goes here
+    bus, err := events.NewEventBus(nil) // Uses DefaultConfig
+    if err != nil {
+        log.Fatalf("Failed to initialize EventBus: %v", err)
+    }
+    defer bus.Close()
+    // ... application logic ...
 }
 ```
 
-### Initialization of a type-safe EventBus using Go generics. Recommended for compile-time type checking of event payloads.
+### Initialization of `EventBus` with custom asynchronous configuration.
 ```[DETECTED_LANGUAGE]
 package main
 
 import (
 	"log"
-
+	"log/slog"
+	"os"
+	"time"
 	"github.com/asaidimu/go-events"
 )
 
-// Define a specific type for event payloads
-type UserUpdateEvent struct { UserID string; NewName string }
-
 func main() {
-	// Pass nil for default configuration or a custom *EventBusConfig
-	typedBus, err := events.NewTypedEventBus[UserUpdateEvent](nil)
-	if err != nil {
-		log.Fatalf("Failed to create typed event bus: %v", err)
-	}
-	defer typedBus.Close()
+    cfg := events.DefaultConfig()
+    cfg.Async = true
+    cfg.BatchSize = 50
+    cfg.BatchDelay = 5 * time.Millisecond
+    cfg.MaxRetries = 5
+    cfg.EnableExponentialBackoff = true
+    cfg.EventTimeout = 2 * time.Second
+    cfg.ShutdownTimeout = 3 * time.Second
+    cfg.Logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+    cfg.MaxQueueSize = 2000
+    cfg.BlockOnFullQueue = false
+    cfg.AsyncWorkerPoolSize = 10
 
-	// Application logic with typed events
-	// typedBus.Emit("user.updated", UserUpdateEvent{UserID: "123", NewName: "Alice"})
+    bus, err := events.NewEventBus(cfg)
+    if err != nil {
+        log.Fatalf("Failed to initialize EventBus: %v", err)
+    }
+    defer bus.Close()
+    // ... application logic ...
 }
 ```
 
 ## Common Integration Pitfalls
 
-- **Issue**: Forgetting to call `bus.Close()` on an asynchronous `EventBus`.
-  - **Solution**: Always use `defer bus.Close()` immediately after `NewEventBus` or `NewTypedEventBus` in your application's main function or service startup routine to ensure graceful shutdown and prevent goroutine leaks.
+- **Issue**: Not calling `bus.Close()` before application exit for an asynchronous bus.
+  - **Solution**: Use `defer bus.Close()` immediately after creating the `EventBus` to ensure all pending events are processed and goroutines are cleanly shut down.
 
-- **Issue**: Events are silently dropped in asynchronous mode.
-  - **Solution**: In `Async: true` mode, events are dropped if no active listeners exist. Ensure all necessary subscriptions are established *before* emitting events. For critical events that must be processed regardless of listeners, consider `Async: false` (synchronous mode) or implementing a `CrossProcessBackend` with a persistent message queue.
+- **Issue**: Registering subscriptions *after* emitting events, leading to dropped events in async mode.
+  - **Solution**: Ensure all necessary `bus.Subscribe` calls are completed before `bus.Emit` calls, especially in asynchronous mode where events are enqueued for later processing.
 
-- **Issue**: Long-running or blocking operations inside event handlers.
-  - **Solution**: Event handlers should be designed to be fast and non-blocking. For computationally intensive or I/O-bound tasks, consider offloading them to separate goroutines or external worker queues. Utilize `EventTimeout` in `EventBusConfig` and ensure handlers check `context.Done()` to prevent indefinite blocking.
-
-- **Issue**: Type mismatch errors when using `TypedEventBus`.
-  - **Solution**: Ensure that the generic type `T` specified during `NewTypedEventBus[T]` instantiation precisely matches the type of the `payload` passed to `typedBus.Emit()`. For example, if `T` is `MyStruct`, `Emit("event", MyStruct{})` is correct, but `Emit("event", &MyStruct{})` will result in a type assertion error.
+- **Issue**: Handlers not respecting `context.Context` cancellation/timeout.
+  - **Solution**: Long-running `EventHandler` functions should periodically check `ctx.Done()` or use `select { ... case <-ctx.Done(): ... }` to gracefully exit when the context is cancelled (e.g., due to `EventTimeout` or `ShutdownTimeout`).
 
 ## Lifecycle Dependencies
 
-The `EventBus` should be initialized at the start of your application's lifecycle (e.g., in `main()` or your service's `init()` function). This ensures it's ready to accept subscriptions and emit events. The `Close()` method must be called during application shutdown to allow pending asynchronous events to complete processing within the `ShutdownTimeout` and to release resources. This is commonly achieved using `defer bus.Close()` or integrating with OS signal handling in long-running services. Handlers typically subscribe after the bus is initialized and unsubscribe via their returned function or `UnsubscribeAll` when specific event processing is no longer required.
+The `EventBus` should be initialized early in the application's lifecycle, typically after configuration loading. Its `Close()` method must be called before the application truly exits to ensure all resources are released and pending asynchronous tasks are completed. Handlers may depend on other application services; these services should be available before the bus starts emitting events and gracefully shut down after the bus.
 
 
 
 ---
-*Generated using Gemini AI on 6/14/2025, 10:25:09 AM. Review and refine as needed.*
+*Generated using Gemini AI on 6/18/2025, 2:26:38 PM. Review and refine as needed.*
