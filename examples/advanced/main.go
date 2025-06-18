@@ -54,7 +54,7 @@ func main() {
 
 	// 1. SubscribeOnce: Handler that runs only once
 	wg.Add(1)
-	unsubscribeOnce := bus.SubscribeWithOptions("payment.processed", func(ctx context.Context, payload interface{}) error {
+	unsubscribeOnce := bus.SubscribeWithOptions("payment.processed", func(ctx context.Context, payload any) error {
 		payment, ok := payload.(PaymentProcessedEvent)
 		if !ok {
 			return fmt.Errorf("invalid payload type for payment.processed: %T", payload)
@@ -67,7 +67,7 @@ func main() {
 
 	// 2. Subscription with Filter: Only process successful payments
 	wg.Add(2) // Expecting two successful payments
-	unsubscribeFiltered := bus.SubscribeWithOptions("payment.processed", func(ctx context.Context, payload interface{}) error {
+	unsubscribeFiltered := bus.SubscribeWithOptions("payment.processed", func(ctx context.Context, payload any) error {
 		payment := payload.(PaymentProcessedEvent) // Type assertion is safe due to filter
 		fmt.Printf("[Filtered Handler] Successful payment notification: %s\n", payment.TransactionID)
 		wg.Done()
@@ -82,7 +82,7 @@ func main() {
 
 	// 3. Handler with simulated timeout
 	wg.Add(1) // This handler is expected to timeout once
-	unsubscribeTimeout := bus.Subscribe("user.login", func(ctx context.Context, payload interface{}) error {
+	unsubscribeTimeout := bus.Subscribe("user.login", func(ctx context.Context, payload any) error {
 		login := payload.(UserLoginEvent)
 		fmt.Printf("[Timeout Handler] Simulating long processing for user: %s (IP: %s)\n", login.UserID, login.IPAddress)
 		select {
@@ -100,7 +100,7 @@ func main() {
 
 	// 4. Handler with simulated panic
 	wg.Add(1) // Expecting this handler to run once and panic
-	unsubscribePanic := bus.Subscribe("user.login", func(ctx context.Context, payload interface{}) error {
+	unsubscribePanic := bus.Subscribe("user.login", func(ctx context.Context, payload any) error {
 		login := payload.(UserLoginEvent)
 		fmt.Printf("[Panic Handler] About to panic for user: %s\n", login.UserID)
 		if login.UserID == "panic-user" {
@@ -113,7 +113,7 @@ func main() {
 
 	// 5. Normal handler for user login
 	wg.Add(1) // For the non-panic user
-	unsubscribeNormalLogin := bus.Subscribe("user.login", func(ctx context.Context, payload interface{}) error {
+	unsubscribeNormalLogin := bus.Subscribe("user.login", func(ctx context.Context, payload any) error {
 		login := payload.(UserLoginEvent)
 		fmt.Printf("[Normal Handler] Logging user login for %s from %s\n", login.UserID, login.IPAddress)
 		wg.Done()
@@ -150,7 +150,6 @@ func main() {
 	fmt.Printf("Queue Size: %d\n", metrics.QueueSize)
 	fmt.Printf("Event Counts: %v\n", metrics.EventCounts)
 	fmt.Printf("Subscription Counts: %v\n", metrics.SubscriptionCounts)
-	fmt.Printf("Average Emit Duration: %s\n", metrics.AverageEmitDuration)
 
 	fmt.Println("\nExample 2 finished.")
 }

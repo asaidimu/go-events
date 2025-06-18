@@ -42,7 +42,7 @@ func main() {
 	defer syncBus.Close() // Ensure graceful shutdown
 
 	// Synchronous: Subscribe to UserRegisteredEvent
-	unsubscribeSyncUser := syncBus.Subscribe("user.registered.sync", func(ctx context.Context, payload interface{}) error {
+	unsubscribeSyncUser := syncBus.Subscribe("user.registered.sync", func(ctx context.Context, payload any) error {
 		user, ok := payload.(UserRegisteredEvent)
 		if !ok {
 			return fmt.Errorf("invalid payload type for user.registered.sync: %T", payload)
@@ -55,7 +55,7 @@ func main() {
 	defer unsubscribeSyncUser()
 
 	// Synchronous: Another handler for the same event
-	unsubscribeSyncUser2 := syncBus.Subscribe("user.registered.sync", func(ctx context.Context, payload interface{}) error {
+	unsubscribeSyncUser2 := syncBus.Subscribe("user.registered.sync", func(ctx context.Context, payload any) error {
 		user, ok := payload.(UserRegisteredEvent)
 		if !ok {
 			return fmt.Errorf("invalid payload type for user.registered.sync: %T", payload)
@@ -82,7 +82,6 @@ func main() {
 	fmt.Printf("Active Subscriptions: %d\n", syncMetrics.ActiveSubscriptions)
 	fmt.Printf("Error Count: %d\n", syncMetrics.ErrorCount)
 	fmt.Printf("Event Counts: %v\n", syncMetrics.EventCounts)
-	fmt.Printf("Average Emit Duration: %s\n", syncMetrics.AverageEmitDuration)
 	fmt.Printf("Queue Size (should be 0 for sync): %d\n", syncMetrics.QueueSize)
 
 	// 2. Asynchronous EventBus
@@ -105,7 +104,7 @@ func main() {
 
 	// Asynchronous: Subscribe to OrderPlacedEvent
 	wg.Add(1)
-	unsubscribeAsyncOrder := asyncBus.Subscribe("order.placed.async", func(ctx context.Context, payload interface{}) error {
+	unsubscribeAsyncOrder := asyncBus.Subscribe("order.placed.async", func(ctx context.Context, payload any) error {
 		order, ok := payload.(OrderPlacedEvent)
 		if !ok {
 			return fmt.Errorf("invalid payload type for order.placed.async: %T", payload)
@@ -119,7 +118,7 @@ func main() {
 
 	// Asynchronous: Another handler for OrderPlacedEvent, simulating an error
 	wg.Add(1)
-	unsubscribeAsyncOrder2 := asyncBus.Subscribe("order.placed.async", func(ctx context.Context, payload interface{}) error {
+	unsubscribeAsyncOrder2 := asyncBus.Subscribe("order.placed.async", func(ctx context.Context, payload any) error {
 		order, ok := payload.(OrderPlacedEvent)
 		if !ok {
 			return fmt.Errorf("invalid payload type for order.placed.async: %T", payload)
@@ -137,7 +136,7 @@ func main() {
 	defer unsubscribeAsyncOrder2()
 
 	// Asynchronous: Handler for an event with no payload
-	unsubscribeNoPayload := asyncBus.Subscribe("system.shutdown", func(ctx context.Context, payload interface{}) error {
+	unsubscribeNoPayload := asyncBus.Subscribe("system.shutdown", func(ctx context.Context, payload any) error {
 		fmt.Println("[Async Handler] System is shutting down!")
 		return nil
 	})
@@ -172,7 +171,6 @@ func main() {
 	fmt.Printf("Queue Size (should be 0 or small after processing): %d\n", asyncMetrics.QueueSize)
 	fmt.Printf("Event Counts: %v\n", asyncMetrics.EventCounts)
 	fmt.Printf("Subscription Counts: %v\n", asyncMetrics.SubscriptionCounts)
-	fmt.Printf("Average Emit Duration: %s (includes queuing time if async)\n", asyncMetrics.AverageEmitDuration)
 
 	fmt.Println("\nExample 1 finished.")
 }

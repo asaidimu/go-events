@@ -193,7 +193,7 @@ func main() {
 
 	// Service A subscribes to order cancellations (local to A)
 	orderWg.Add(2) // Expecting 2 local cancellations
-	unsubscribeACancel := busA.Subscribe("order.cancelled", func(ctx context.Context, payload interface{}) error {
+	unsubscribeACancel := busA.Subscribe("order.cancelled", func(ctx context.Context, payload any) error {
 		order, ok := payload.(OrderCancelledEvent)
 		if !ok {
 			return fmt.Errorf("invalid payload for order.cancelled in ServiceA")
@@ -206,7 +206,7 @@ func main() {
 
 	// Service B subscribes to product updates (local to B)
 	orderWg.Add(1) // Expecting 1 product update from cross-process
-	unsubscribeBProduct := busB.Subscribe("product.updated", func(ctx context.Context, payload interface{}) error {
+	unsubscribeBProduct := busB.Subscribe("product.updated", func(ctx context.Context, payload any) error {
 		product, ok := payload.(ProductUpdatedEvent)
 		if !ok {
 			return fmt.Errorf("invalid payload for product.updated in ServiceB")
