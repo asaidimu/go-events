@@ -1,3 +1,33 @@
+# [2.0.0](https://github.com/asaidimu/go-events/compare/v1.1.0...v2.0.0) (2026-06-29)
+
+
+### Features
+
+* **v2:** release v2.0.0 with in-memory fast path and Go module updates ([9baaafd](https://github.com/asaidimu/go-events/commit/9baaafd724364465f0bcb7458e7313fa266f364c))
+
+
+### BREAKING CHANGES
+
+* **v2:** The module path has been updated to `github.com/asaidimu/go-events/v2`. This requires updating your import statements to use the `/v2` suffix. Additionally, `UUIDForTime` has been moved to the compactor package and should now be accessed via `events.UUIDForTime`.
+
+### Added
+- `SubscribeOptions.LiveOnly` — skip Pebble catch-up for real-time consumers
+- `SubscribeOptions.LiveBufferSize` — configurable in-memory channel capacity
+- `SimpleEventBus[T]` — minimal generic wrapper with auto-generated subscriber IDs
+- `SimpleConfig` — configure LiveOnly and buffer size at the bus level
+- In-memory fast path: live events delivered via buffered channel, bypassing Pebble read+decode
+- Wakeup broadcast via channel close-and-recreate for instant drain notification
+
+### Changed
+- Module path: `github.com/asaidimu/go-events` → `github.com/asaidimu/go-events/v2`
+- `NewSimple` accepts optional `SimpleConfig` variadic argument
+
+### Fixed
+- Duplicate delivery when the same event was dispatched from both Pebble and the live channel (drain live channel after Pebble dispatch)
+
+### Removed
+- `UUIDForTime` now part of the compactor package (use `events.UUIDForTime`)
+
 # Changelog
 
 ## 2.0.0 (2026-06-29)
